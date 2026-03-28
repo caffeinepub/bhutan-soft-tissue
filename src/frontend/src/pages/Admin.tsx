@@ -322,7 +322,7 @@ export default function Admin() {
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const MAX = 400;
+      const MAX = 300;
       let { width, height } = img;
       if (width > MAX || height > MAX) {
         if (width > height) {
@@ -338,7 +338,15 @@ export default function Admin() {
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+      let dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+      // If still large, try lower quality
+      if (dataUrl.length > 300 * 1024) {
+        dataUrl = canvas.toDataURL("image/jpeg", 0.3);
+      }
+      if (dataUrl.length > 400 * 1024) {
+        toast.error("Image is too large. Please use a smaller photo.");
+        return;
+      }
       setForm((prev) => ({ ...prev, imageUrl: dataUrl }));
     };
     img.src = objectUrl;
@@ -510,6 +518,15 @@ export default function Admin() {
   };
   const handleSave = async () => {
     try {
+      // Re-authenticate with backend before saving to ensure admin role is active
+      const hash = getStoredHash();
+      if (hash && actor) {
+        try {
+          await (actor as any).adminPasswordLogin(hash);
+        } catch {
+          // ignore auth errors, proceed anyway
+        }
+      }
       if (editingProduct) {
         await updateProductMutation.mutateAsync({
           id: editingProduct.id,
@@ -521,7 +538,8 @@ export default function Admin() {
         toast.success("Product added");
       }
       setProductModalOpen(false);
-    } catch {
+    } catch (err) {
+      console.error("Failed to save product:", err);
       toast.error("Failed to save product");
     }
   };
@@ -897,7 +915,7 @@ export default function Admin() {
     NAV_ITEMS.find((n) => n.id === activeSection)?.label ?? "Dashboard";
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-[calc(100vh-4rem)] bg-slate-50 overflow-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -911,7 +929,7 @@ export default function Admin() {
 
       {/* ── Sidebar ── */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 text-white transition-transform duration-300 ${
+        className={`fixed lg:static top-16 lg:top-auto bottom-0 lg:bottom-auto left-0 z-30 flex flex-col w-64 bg-slate-900 text-white transition-transform duration-300 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
