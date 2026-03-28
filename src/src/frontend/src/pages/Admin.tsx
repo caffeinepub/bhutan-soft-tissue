@@ -43,9 +43,14 @@ import { toast } from "sonner";
 import type { Product } from "../backend.d";
 import {
   useAddProduct,
+  useAdminPasswordLogin,
+  useChangeAdminPassword,
   useDeleteProduct,
+  useIsAdminPasswordSet,
+  useLoginLockoutSeconds,
   useOrders,
   useProducts,
+  useSetupAdminPassword,
   useUpdateOrderStatus,
   useUpdateProduct,
 } from "../hooks/useQueries";
@@ -65,12 +70,7 @@ const EMPTY_FORM = {
   category: "facial",
 };
 
-const STORAGE_HASH_KEY = "opal_admin_pw_hash";
-const STORAGE_LOCKOUT_KEY = "opal_admin_lockout_until";
-const STORAGE_ATTEMPTS_KEY = "opal_admin_attempts";
 const SESSION_KEY = "opal_admin_authed";
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
 async function sha256hex(text: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -80,18 +80,34 @@ async function sha256hex(text: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function getStoredHash(): string | null {
-  return localStorage.getItem(STORAGE_HASH_KEY);
-}
-function getLockoutUntil(): number {
-  return Number(localStorage.getItem(STORAGE_LOCKOUT_KEY) ?? "0");
-}
-function getFailedAttempts(): number {
-  return Number(localStorage.getItem(STORAGE_ATTEMPTS_KEY) ?? "0");
-}
-function resetAttempts() {
-  localStorage.removeItem(STORAGE_ATTEMPTS_KEY);
-  localStorage.removeItem(STORAGE_LOCKOUT_KEY);
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = 800;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) {
+          height = Math.round((height * MAX) / width);
+          width = MAX;
+        } else {
+          width = Math.round((width * MAX) / height);
+          height = MAX;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("Canvas not supported"));
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = () => reject(new Error("Image load failed"));
+    img.src = objectUrl;
+  });
 }
 
 export default function Admin() {
@@ -104,7 +120,7 @@ export default function Admin() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [countdownDisplay, setCountdownDisplay] = useState(0);
+  const [countdown, setCountdown] = useState(0);
 
   // Setup form state
   const [setupPassword, setSetupPassword] = useState("");
@@ -117,24 +133,28 @@ export default function Admin() {
   const [changeConfirm, setChangeConfirm] = useState("");
   const [changeError, setChangeError] = useState("");
 
-  const isAdminPasswordSet = !!getStoredHash();
-  // Live countdown for lockout
+  // Backend hooks
+  const { data: isAdminPasswordSet, isLoading: checkingPasswordSet } =
+    useIsAdminPasswordSet();
+  const { data: lockoutSeconds = 0, refetch: refetchLockout } =
+    useLoginLockoutSeconds();
+  const setupAdminPasswordMutation = useSetupAdminPassword();
+  const adminPasswordLoginMutation = useAdminPasswordLogin();
+  const changeAdminPasswordMutation = useChangeAdminPassword();
+
+  // Sync countdown from lockoutSeconds
   useEffect(() => {
-    const until = getLockoutUntil();
-    const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    setCountdownDisplay(remaining);
-    if (remaining <= 0) return;
+    setCountdown(lockoutSeconds);
+  }, [lockoutSeconds]);
+
+  // Local countdown decrement
+  useEffect(() => {
+    if (countdown <= 0) return;
     const interval = setInterval(() => {
-      const left = Math.max(
-        0,
-        Math.ceil((getLockoutUntil() - Date.now()) / 1000),
-      );
-      setCountdownDisplay(left);
-      if (left <= 0) clearInterval(interval);
+      setCountdown((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [countdown]);
 
   const { data: orders = [] } = useOrders();
   const { data: products = [] } = useProducts();
@@ -158,13 +178,13 @@ export default function Admin() {
     }
   }, [isAdminAuthenticated]);
 
-  const handleImageFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setForm((prev) => ({ ...prev, imageUrl: dataUrl }));
-    };
-    reader.readAsDataURL(file);
+  const handleImageFile = async (file: File) => {
+    try {
+      const compressed = await compressImage(file);
+      setForm((prev) => ({ ...prev, imageUrl: compressed }));
+    } catch {
+      toast.error("Failed to process image. Please try another photo.");
+    }
   };
 
   const handleSetup = async (e: React.FormEvent) => {
@@ -181,11 +201,14 @@ export default function Admin() {
     setIsSubmitting(true);
     try {
       const hash = await sha256hex(setupPassword);
-      localStorage.setItem(STORAGE_HASH_KEY, hash);
-      resetAttempts();
-      sessionStorage.setItem(SESSION_KEY, "true");
-      setIsAdminAuthenticated(true);
-      toast.success("Admin password created. You are now logged in.");
+      const ok = await setupAdminPasswordMutation.mutateAsync(hash);
+      if (ok) {
+        sessionStorage.setItem(SESSION_KEY, "true");
+        setIsAdminAuthenticated(true);
+        toast.success("Admin password created. You are now logged in.");
+      } else {
+        setSetupError("Setup failed. Admin password may already be set.");
+      }
     } catch {
       setSetupError("An error occurred. Please try again.");
     } finally {
@@ -196,40 +219,25 @@ export default function Admin() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
-    // Check lockout
-    const lockoutUntil = getLockoutUntil();
-    if (Date.now() < lockoutUntil) {
-      const secs = Math.ceil((lockoutUntil - Date.now()) / 1000);
-      const mins = Math.floor(secs / 60);
-      const s = secs % 60;
+    if (countdown > 0) {
+      const mins = Math.floor(countdown / 60);
+      const secs = countdown % 60;
       setLoginError(
-        `Too many failed attempts. Try again in ${mins} minutes ${s} seconds.`,
+        `Too many failed attempts. Try again in ${mins > 0 ? `${mins} minutes ` : ""}${secs} seconds.`,
       );
       return;
     }
     setIsSubmitting(true);
     try {
       const hash = await sha256hex(loginPassword);
-      const storedHash = getStoredHash();
-      if (hash === storedHash) {
-        resetAttempts();
+      const ok = await adminPasswordLoginMutation.mutateAsync(hash);
+      if (ok) {
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminAuthenticated(true);
         setLoginPassword("");
       } else {
-        const attempts = getFailedAttempts() + 1;
-        localStorage.setItem(STORAGE_ATTEMPTS_KEY, String(attempts));
-        if (attempts >= MAX_ATTEMPTS) {
-          const until = Date.now() + LOCKOUT_DURATION_MS;
-          localStorage.setItem(STORAGE_LOCKOUT_KEY, String(until));
-          localStorage.setItem(STORAGE_ATTEMPTS_KEY, "0");
-          setLoginError("Too many failed attempts. Locked out for 15 minutes.");
-        } else {
-          const remaining = MAX_ATTEMPTS - attempts;
-          setLoginError(
-            `Incorrect password. ${remaining} attempt(s) remaining before lockout.`,
-          );
-        }
+        await refetchLockout();
+        setLoginError("Incorrect password.");
       }
     } catch {
       setLoginError("An error occurred. Please try again.");
@@ -252,18 +260,20 @@ export default function Admin() {
     setIsSubmitting(true);
     try {
       const currentHash = await sha256hex(changeCurrent);
-      const storedHash = getStoredHash();
-      if (currentHash !== storedHash) {
-        setChangeError("Current password is incorrect.");
-        return;
-      }
       const newHash = await sha256hex(changeNew);
-      localStorage.setItem(STORAGE_HASH_KEY, newHash);
-      setShowChangePassword(false);
-      setChangeCurrent("");
-      setChangeNew("");
-      setChangeConfirm("");
-      toast.success("Password changed successfully.");
+      const ok = await changeAdminPasswordMutation.mutateAsync({
+        currentHash,
+        newHash,
+      });
+      if (ok) {
+        setShowChangePassword(false);
+        setChangeCurrent("");
+        setChangeNew("");
+        setChangeConfirm("");
+        toast.success("Password changed successfully.");
+      } else {
+        setChangeError("Current password is incorrect.");
+      }
     } catch {
       setChangeError("An error occurred. Please try again.");
     } finally {
@@ -278,8 +288,17 @@ export default function Admin() {
     setLoginError("");
   };
 
-  // Setup password (first time)
-  if (!isAdminPasswordSet && !isAdminAuthenticated) {
+  // Loading while checking if password is set
+  if (!isAdminAuthenticated && checkingPasswordSet) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-forest" />
+      </div>
+    );
+  }
+
+  // Setup password (first time) - only when backend confirms no password set
+  if (!isAdminAuthenticated && isAdminPasswordSet === false) {
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center bg-background">
         <motion.div
@@ -353,9 +372,9 @@ export default function Admin() {
 
   // Login gate
   if (!isAdminAuthenticated) {
-    const isLockedOut = countdownDisplay > 0;
-    const lockMins = Math.floor(countdownDisplay / 60);
-    const lockSecs = countdownDisplay % 60;
+    const isLockedOut = countdown > 0;
+    const lockMins = Math.floor(countdown / 60);
+    const lockSecs = countdown % 60;
 
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center bg-background">
@@ -884,6 +903,7 @@ export default function Admin() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                capture="environment"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];

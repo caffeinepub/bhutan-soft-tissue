@@ -23,7 +23,7 @@ import { useActor } from "../hooks/useActor";
 import { useOrders, useProducts } from "../hooks/useQueries";
 
 const PRICING = {
-  napkin: { carton: 2800, packet: 280, name: "Napkin Tissue", id: BigInt(2) },
+  napkin: { carton: 2800, packet: 280, name: "Napkin Tissue", id: BigInt(0) },
   roll: { carton: 3200, packet: 320, name: "Roll Tissue", id: BigInt(1) },
 };
 

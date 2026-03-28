@@ -44,6 +44,7 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Product } from "../backend.d";
+import { useActor } from "../hooks/useActor";
 import {
   useAddProduct,
   useAdminPasswordLogin,
@@ -247,12 +248,25 @@ export default function Admin() {
     }
   }, [isAdminAuthenticated]);
 
+  // Auto re-login to restore backend admin role on every mount (role is lost on canister upgrade)
+  const { actor } = useActor();
+  useEffect(() => {
+    if (!isAdminAuthenticated || !actor) return;
+    const hash = getStoredHash();
+    if (!hash) return;
+    // Re-establish admin role on backend (in-memory role is lost on canister restart)
+    (actor as any).adminPasswordLogin(hash).catch(() => {
+      // Silent fail
+    });
+    // biome-ignore lint/correctness/useExhaustiveDependencies: actor identity changes trigger re-login
+  }, [actor, isAdminAuthenticated]);
+
   const handleImageFile = (file: File) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const MAX = 800;
+      const MAX = 400;
       let { width, height } = img;
       if (width > MAX || height > MAX) {
         if (width > height) {
@@ -268,7 +282,7 @@ export default function Admin() {
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
       setForm((prev) => ({ ...prev, imageUrl: dataUrl }));
     };
     img.src = objectUrl;
@@ -1096,7 +1110,6 @@ export default function Admin() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
