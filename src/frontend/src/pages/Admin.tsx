@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BarChart2,
@@ -218,6 +219,7 @@ export default function Admin() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [activeSection, setActiveSection] = useState<NavSection>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const queryClient = useQueryClient();
   const [notifOpen, setNotifOpen] = useState(false);
 
   // Login form state
@@ -366,6 +368,8 @@ export default function Admin() {
       }
       sessionStorage.setItem(SESSION_KEY, "true");
       setIsAdminAuthenticated(true);
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.success("Admin password created. You are now logged in.");
     } catch {
       setSetupError("An error occurred. Please try again.");
@@ -398,6 +402,8 @@ export default function Admin() {
         } catch {}
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminAuthenticated(true);
+        queryClient.invalidateQueries({ queryKey: ["orders"] });
+        queryClient.invalidateQueries({ queryKey: ["products"] });
         setLoginPassword("");
       } else {
         const attempts = getFailedAttempts() + 1;

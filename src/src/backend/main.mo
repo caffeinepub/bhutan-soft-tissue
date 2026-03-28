@@ -79,21 +79,16 @@ actor {
   stable var adminPasswordHash : ?Text = null;
 
   // Brute-force protection
-  // Number of consecutive failed login attempts
   stable var failedLoginAttempts : Nat = 0;
-  // Time (nanoseconds) when lockout expires; 0 means not locked
   stable var loginLockedUntilNanos : Int = 0;
 
-  // Max failed attempts before lockout
   let MAX_ATTEMPTS : Nat = 5;
-  // Lockout duration: 15 minutes in nanoseconds
   let LOCKOUT_NANOS : Int = 15 * 60 * 1_000_000_000;
 
-  // Legacy flag kept for compatibility
   stable var adminClaimed : Bool = false;
 
-  var nextProductId = 0;
-  var nextOrderId = 0;
+  stable var nextProductId : Nat = 0;
+  stable var nextOrderId : Nat = 0;
 
   let products = Map.empty<Nat, Product>();
   let orders = Map.empty<Nat, Order>();
@@ -109,7 +104,6 @@ actor {
 
   // ADMIN PASSWORD AUTH
 
-  // Check if an admin password has been configured
   public query func isAdminPasswordSet() : async Bool {
     switch (adminPasswordHash) {
       case (null) { false };
@@ -117,7 +111,6 @@ actor {
     };
   };
 
-  // Returns seconds remaining in lockout (0 if not locked)
   public query func getLoginLockoutSeconds() : async Nat {
     let now = Time.now();
     if (loginLockedUntilNanos > now) {
@@ -128,20 +121,19 @@ actor {
     };
   };
 
-  // Returns current failed attempt count
   public query func getFailedLoginAttempts() : async Nat {
     failedLoginAttempts;
   };
 
-  // First-time setup: store hashed password and grant admin role to caller
   public shared ({ caller }) func setupAdminPassword(hash : Text) : async Bool {
     switch (adminPasswordHash) {
-      case (?_) { false }; // Already configured
+      case (?_) { false };
       case (null) {
-        if (hash.size() < 8) { return false }; // Sanity check
+        if (hash.size() < 8) { return false };
         adminPasswordHash := ?hash;
         failedLoginAttempts := 0;
         loginLockedUntilNanos := 0;
+        // Grant admin role to this caller (works for both anonymous and authenticated)
         accessControlState.userRoles.add(caller, #admin);
         accessControlState.adminAssigned := true;
         adminClaimed := true;
@@ -150,12 +142,9 @@ actor {
     };
   };
 
-  // Login: grant admin role to caller if hash matches stored hash
-  // Locks out after MAX_ATTEMPTS failed tries for LOCKOUT_NANOS duration
   public shared ({ caller }) func adminPasswordLogin(hash : Text) : async Bool {
     let now = Time.now();
 
-    // Check lockout
     if (loginLockedUntilNanos > now) {
       return false;
     };
@@ -164,17 +153,16 @@ actor {
       case (null) { false };
       case (?storedHash) {
         if (storedHash == hash) {
-          // Success: reset counters
           failedLoginAttempts := 0;
           loginLockedUntilNanos := 0;
+          // Grant admin role to caller -- works for anonymous principals now
           accessControlState.userRoles.add(caller, #admin);
           true;
         } else {
-          // Failure: increment counter
           failedLoginAttempts += 1;
           if (failedLoginAttempts >= MAX_ATTEMPTS) {
             loginLockedUntilNanos := now + LOCKOUT_NANOS;
-            failedLoginAttempts := 0; // Reset for next window
+            failedLoginAttempts := 0;
           };
           false;
         };
@@ -182,10 +170,8 @@ actor {
     };
   };
 
-  // Change admin password (requires providing current password hash)
   public shared ({ caller }) func changeAdminPassword(currentHash : Text, newHash : Text) : async Bool {
     let now = Time.now();
-    // Also protect change password from brute force
     if (loginLockedUntilNanos > now) {
       return false;
     };
@@ -209,12 +195,10 @@ actor {
     };
   };
 
-  // Legacy claim admin (kept for backward compat, no longer used)
   public shared ({ caller }) func claimAdmin() : async Bool {
     false;
   };
 
-  // Check whether admin has been claimed (legacy)
   public query func isAdminClaimed() : async Bool {
     adminClaimed;
   };
@@ -226,7 +210,7 @@ actor {
       price = 45;
       category = "facial";
       imageUrl = "";
-      stock = 50;
+      stock = 9999;
       id = 0;
     });
 
@@ -236,7 +220,7 @@ actor {
       price = 80;
       category = "toilet";
       imageUrl = "";
-      stock = 100;
+      stock = 9999;
       id = 0;
     });
 
@@ -246,7 +230,7 @@ actor {
       price = 60;
       category = "kitchen";
       imageUrl = "";
-      stock = 75;
+      stock = 9999;
       id = 0;
     });
 
@@ -256,7 +240,7 @@ actor {
       price = 30;
       category = "pocket";
       imageUrl = "";
-      stock = 200;
+      stock = 9999;
       id = 0;
     });
   };
@@ -305,10 +289,7 @@ actor {
 
   // ORDERS
   public shared ({ caller }) func placeOrder(customerName : Text, phone : Text, address : Text) : async Nat {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
-      Runtime.trap("Unauthorized: Only users can place orders");
-    };
-
+    // Allow all callers (guest, user, admin) to place orders
     let cart = getCartInternal(caller);
 
     if (cart.items.size() == 0) { Runtime.trap("Cart is empty") };
@@ -337,22 +318,6 @@ actor {
     orders.add(nextOrderId, newOrder);
     nextOrderId += 1;
 
-    // Update stock
-    for (item in cart.items.values()) {
-      switch (products.get(item.productId)) {
-        case (?product) {
-          if (product.stock < item.quantity) {
-            Runtime.trap("Insufficient stock for product id " # item.productId.toText());
-          };
-          let updatedProduct = {
-            product with
-            stock = product.stock - item.quantity;
-          };
-          products.add(item.productId, updatedProduct);
-        };
-        case (null) { Runtime.trap("Product not found") };
-      };
-    };
     carts.remove(caller);
 
     newOrder.id;
@@ -388,7 +353,7 @@ actor {
     };
   };
 
-  // CART
+  // CART - open to all callers
   func getCartInternal(user : Principal) : Cart {
     switch (carts.get(user)) {
       case (?cart) { cart };
@@ -397,14 +362,9 @@ actor {
   };
 
   public shared ({ caller }) func addToCart(productId : Nat, quantity : Nat) : async () {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
-      Runtime.trap("Unauthorized: Only users can add items to cart");
-    };
-
     if (quantity == 0) { Runtime.trap("Quantity must be greater than 0") };
     switch (products.get(productId)) {
       case (?product) {
-        if (product.stock < quantity) { Runtime.trap("Insufficient stock") };
         let cart = getCartInternal(caller);
         let existingItem = cart.items.find(func(item) { item.productId == productId });
         let newItems = switch (existingItem) {
@@ -422,10 +382,6 @@ actor {
   };
 
   public shared ({ caller }) func removeFromCart(productId : Nat) : async () {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
-      Runtime.trap("Unauthorized: Only users can remove items from cart");
-    };
-
     let cart = getCartInternal(caller);
     let filteredItems = cart.items.filter(func(item) { item.productId != productId });
     let newTotal = switch (products.get(productId)) {
@@ -443,16 +399,10 @@ actor {
   };
 
   public query ({ caller }) func getCart() : async Cart {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
-      Runtime.trap("Unauthorized: Only users can view cart");
-    };
     getCartInternal(caller);
   };
 
   public shared ({ caller }) func clearCart() : async () {
-    if (not AccessControl.hasPermission(accessControlState, caller, #user)) {
-      Runtime.trap("Unauthorized: Only users can clear cart");
-    };
     carts.remove(caller);
   };
 };

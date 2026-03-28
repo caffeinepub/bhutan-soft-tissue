@@ -1,0 +1,63 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 93% 0.02 80;
+    --foreground: 14% 0 0;
+    --card: 90% 0.025 80;
+    --card-foreground: 14% 0 0;
+    --popover: 95% 0.015 80;
+    --popover-foreground: 14% 0 0;
+    --primary: 30% 0.07 155;
+    --primary-foreground: 98% 0.005 80;
+    --secondary: 88% 0.025 80;
+    --secondary-foreground: 26% 0.005 0;
+    --muted: 91% 0.018 80;
+    --muted-foreground: 45% 0.01 80;
+    --accent: 70% 0.1 75;
+    --accent-foreground: 14% 0 0;
+    --destructive: 50% 0.2 25;
+    --destructive-foreground: 98% 0 0;
+    --border: 87% 0.02 80;
+    --input: 87% 0.02 80;
+    --ring: 62% 0.13 50;
+    --radius: 0.5rem;
+    --cream: 93% 0.02 80;
+    --forest-green: 26% 0.06 155;
+    --forest-green-light: 30% 0.07 155;
+    --card-green: 23% 0.06 155;
+    --gold: 70% 0.1 75;
+    --orange: 62% 0.13 50;
+    --beige: 87% 0.02 80;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: oklch(var(--cream));
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--forest-green-light));
+  border-radius: 3px;
+}

@@ -1,6 +1,7 @@
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Map "mo:core/Map";
+import Array "mo:core/Array";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 import List "mo:core/List";
@@ -12,12 +13,6 @@ import MixinAuthorization "authorization/MixinAuthorization";
 
 actor {
   // TYPES
-  module Product {
-    public func compare(a : Product, b : Product) : Order.Order {
-      Nat.compare(a.id, b.id);
-    };
-  };
-
   type Product = {
     id : Nat;
     name : Text;
@@ -54,99 +49,33 @@ actor {
     total : Nat;
   };
 
-  // STATE
+  // Keep accessControlState to preserve stable variable compatibility with previous version
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
-  // Admin password hash (SHA-256 hex string computed in frontend)
+  // STABLE STATE
   stable var adminPasswordHash : ?Text = null;
-
-  // Brute-force protection
+  // Persist admin principal so it survives canister upgrades
+  stable var adminPrincipal : ?Principal = null;
   stable var failedLoginAttempts : Nat = 0;
   stable var loginLockedUntilNanos : Int = 0;
-
-  let MAX_ATTEMPTS : Nat = 5;
-  let LOCKOUT_NANOS : Int = 15 * 60 * 1_000_000_000;
-
   stable var adminClaimed : Bool = false;
 
-  // Admin principal - preserved across upgrades so role is never lost
-  stable var adminPrincipal : ?Principal = null;
-
-  // Counters
   stable var nextProductId : Nat = 0;
   stable var nextOrderId : Nat = 0;
 
-  // Stable backing storage for products, orders, carts
+  // Stable storage arrays -- use original names to preserve upgrade compatibility
   stable var productsStable : [(Nat, Product)] = [];
   stable var ordersStable : [(Nat, Order)] = [];
   stable var cartsStable : [(Principal, Cart)] = [];
 
-  // In-memory maps (rebuilt from stable vars on upgrade)
-  let products = Map.empty<Nat, Product>();
-  let orders = Map.empty<Nat, Order>();
-  let carts = Map.empty<Principal, Cart>();
+  // In-memory maps restored from stable on upgrade
+  let products = Map.fromIter<Nat, Product>(productsStable.vals());
+  let orders = Map.fromIter<Nat, Order>(ordersStable.vals());
+  let carts = Map.fromIter<Principal, Cart>(cartsStable.vals());
 
-  // --- Helper functions defined before initialization ---
-
-  func addProductInternal(product : Product) {
-    let newProduct = { product with id = nextProductId };
-    products.add(nextProductId, newProduct);
-    nextProductId += 1;
-    productsStable := products.entries().toArray();
-  };
-
-  func seedProducts() {
-    addProductInternal({
-      name = "Napkin Tissue";
-      description = "Soft 2-ply napkin tissue. Ideal for restaurants, hotels, and offices.";
-      price = 2800;
-      category = "napkin";
-      imageUrl = "";
-      stock = 999999;
-      id = 0;
-    });
-    addProductInternal({
-      name = "Roll Tissue";
-      description = "Durable 2-ply roll tissue for everyday use. Available in bulk cartons.";
-      price = 3200;
-      category = "roll";
-      imageUrl = "";
-      stock = 999999;
-      id = 0;
-    });
-  };
-
-  func isAdminCaller(caller : Principal) : Bool {
-    switch (adminPrincipal) {
-      case (?p) { if (Principal.equal(p, caller)) { return true } };
-      case (null) {};
-    };
-    AccessControl.isAdmin(accessControlState, caller);
-  };
-
-  // --- Initialization ---
-
-  // Load stable state into maps
-  for ((k, v) in productsStable.values()) { products.add(k, v) };
-  for ((k, v) in ordersStable.values()) { orders.add(k, v) };
-  for ((k, v) in cartsStable.values()) { carts.add(k, v) };
-
-  // Restore admin role
-  switch (adminPrincipal) {
-    case (?p) {
-      accessControlState.userRoles.add(p, #admin);
-      accessControlState.adminAssigned := true;
-    };
-    case (null) {};
-  };
-
-  // Auto-seed default products on first ever deployment
-  if (nextProductId == 0) {
-    seedProducts();
-  };
-
-  // --- Upgrade hooks ---
+  let MAX_ATTEMPTS : Nat = 5;
+  let LOCKOUT_NANOS : Int = 15 * 60 * 1_000_000_000;
 
   system func preupgrade() {
     productsStable := products.entries().toArray();
@@ -155,23 +84,17 @@ actor {
   };
 
   system func postupgrade() {
-    for ((k, v) in productsStable.values()) { products.add(k, v) };
-    for ((k, v) in ordersStable.values()) { orders.add(k, v) };
-    for ((k, v) in cartsStable.values()) { carts.add(k, v) };
-    switch (adminPrincipal) {
-      case (?p) {
-        accessControlState.userRoles.add(p, #admin);
-        accessControlState.adminAssigned := true;
-      };
-      case (null) {};
-    };
+    productsStable := [];
+    ordersStable := [];
+    cartsStable := [];
   };
 
-  // --- Public API ---
-
-  // INITIALIZE - seeds products once (callable externally if needed)
-  public shared func initialize() : async () {
-    if (nextProductId == 0) { seedProducts() };
+  // Helper: check caller is admin using stable principal
+  func isAdmin(caller : Principal) : Bool {
+    switch (adminPrincipal) {
+      case (?p) { p == caller };
+      case (null) { false };
+    };
   };
 
   // ADMIN PASSWORD AUTH
@@ -186,8 +109,11 @@ actor {
   public query func getLoginLockoutSeconds() : async Nat {
     let now = Time.now();
     if (loginLockedUntilNanos > now) {
-      Int.abs(loginLockedUntilNanos - now) / 1_000_000_000;
-    } else { 0 };
+      let remaining = loginLockedUntilNanos - now;
+      Int.abs(remaining) / 1_000_000_000;
+    } else {
+      0;
+    };
   };
 
   public query func getFailedLoginAttempts() : async Nat {
@@ -200,9 +126,9 @@ actor {
       case (null) {
         if (hash.size() < 8) { return false };
         adminPasswordHash := ?hash;
+        adminPrincipal := ?caller;
         failedLoginAttempts := 0;
         loginLockedUntilNanos := 0;
-        adminPrincipal := ?caller;
         accessControlState.userRoles.add(caller, #admin);
         accessControlState.adminAssigned := true;
         adminClaimed := true;
@@ -213,13 +139,16 @@ actor {
 
   public shared ({ caller }) func adminPasswordLogin(hash : Text) : async Bool {
     let now = Time.now();
-    if (loginLockedUntilNanos > now) { return false };
+    if (loginLockedUntilNanos > now) {
+      return false;
+    };
     switch (adminPasswordHash) {
       case (null) { false };
       case (?storedHash) {
         if (storedHash == hash) {
           failedLoginAttempts := 0;
           loginLockedUntilNanos := 0;
+          // Update stable adminPrincipal so checks work after upgrade
           adminPrincipal := ?caller;
           accessControlState.userRoles.add(caller, #admin);
           true;
@@ -237,7 +166,9 @@ actor {
 
   public shared ({ caller }) func changeAdminPassword(currentHash : Text, newHash : Text) : async Bool {
     let now = Time.now();
-    if (loginLockedUntilNanos > now) { return false };
+    if (loginLockedUntilNanos > now) {
+      return false;
+    };
     switch (adminPasswordHash) {
       case (null) { false };
       case (?storedHash) {
@@ -258,14 +189,19 @@ actor {
     };
   };
 
-  public shared func claimAdmin() : async Bool { false };
+  public shared ({ caller }) func claimAdmin() : async Bool { false };
 
   public query func isAdminClaimed() : async Bool { adminClaimed };
 
   // PRODUCTS (CRUD)
+  func addProductInternal(product : Product) {
+    let newProduct = { product with id = nextProductId };
+    products.add(nextProductId, newProduct);
+    nextProductId += 1;
+  };
 
   public shared ({ caller }) func addProduct(product : Product) : async () {
-    if (not isAdminCaller(caller)) {
+    if (not isAdmin(caller)) {
       Runtime.trap("Unauthorized: Only admins can add products");
     };
     addProductInternal(product);
@@ -279,42 +215,41 @@ actor {
   };
 
   public query func getAllProducts() : async [Product] {
-    products.values().toArray().sort();
+    products.values().toArray();
   };
 
   public shared ({ caller }) func updateProduct(id : Nat, product : Product) : async () {
-    if (not isAdminCaller(caller)) {
+    if (not isAdmin(caller)) {
       Runtime.trap("Unauthorized: Only admins can update products");
     };
     if (not products.containsKey(id)) { Runtime.trap("Product not found") };
-    products.add(id, { product with id });
-    productsStable := products.entries().toArray();
+    let updatedProduct = { product with id };
+    products.add(id, updatedProduct);
   };
 
   public shared ({ caller }) func deleteProduct(id : Nat) : async () {
-    if (not isAdminCaller(caller)) {
+    if (not isAdmin(caller)) {
       Runtime.trap("Unauthorized: Only admins can delete products");
     };
     if (not products.containsKey(id)) { Runtime.trap("Product not found") };
     products.remove(id);
-    productsStable := products.entries().toArray();
   };
 
   // ORDERS
-
   public shared ({ caller }) func placeOrder(customerName : Text, phone : Text, address : Text) : async Nat {
+    if (caller.isAnonymous()) {
+      Runtime.trap("Must be logged in to place an order");
+    };
     let cart = getCartInternal(caller);
     if (cart.items.size() == 0) { Runtime.trap("Cart is empty") };
 
     let orderItemsList = List.empty<OrderItem>();
-    for (cartItem in cart.items.values()) {
+    for (cartItem in cart.items.vals()) {
       switch (products.get(cartItem.productId)) {
         case (?product) {
           orderItemsList.add({ cartItem with price = product.price });
         };
-        case (null) {
-          orderItemsList.add({ cartItem with price = 0 });
-        };
+        case (null) { Runtime.trap("Product not found") };
       };
     };
 
@@ -325,19 +260,17 @@ actor {
       address;
       items = orderItemsList.toArray();
       total = cart.total;
-      status = "pending";
+      status = "Pending";
     };
 
     orders.add(nextOrderId, newOrder);
-    ordersStable := orders.entries().toArray();
     nextOrderId += 1;
     carts.remove(caller);
-    cartsStable := carts.entries().toArray();
     newOrder.id;
   };
 
   public query ({ caller }) func getOrder(id : Nat) : async Order {
-    if (not isAdminCaller(caller)) {
+    if (not isAdmin(caller)) {
       Runtime.trap("Unauthorized: Only admins can view orders");
     };
     switch (orders.get(id)) {
@@ -346,28 +279,27 @@ actor {
     };
   };
 
+  // Returns orders if admin, empty array otherwise (no trap -- safe for pre-login calls)
   public query ({ caller }) func getAllOrders() : async [Order] {
-    if (not isAdminCaller(caller)) {
-      Runtime.trap("Unauthorized: Only admins can list all orders");
+    if (not isAdmin(caller)) {
+      return [];
     };
     orders.values().toArray();
   };
 
   public shared ({ caller }) func updateOrderStatus(id : Nat, status : Text) : async () {
-    if (not isAdminCaller(caller)) {
+    if (not isAdmin(caller)) {
       Runtime.trap("Unauthorized: Only admins can update order status");
     };
     switch (orders.get(id)) {
       case (?order) {
         orders.add(id, { order with status });
-        ordersStable := orders.entries().toArray();
       };
       case (null) { Runtime.trap("Order not found") };
     };
   };
 
   // CART
-
   func getCartInternal(user : Principal) : Cart {
     switch (carts.get(user)) {
       case (?cart) { cart };
@@ -376,47 +308,53 @@ actor {
   };
 
   public shared ({ caller }) func addToCart(productId : Nat, quantity : Nat) : async () {
+    if (caller.isAnonymous()) {
+      Runtime.trap("Must be logged in to use cart");
+    };
     if (quantity == 0) { Runtime.trap("Quantity must be greater than 0") };
     switch (products.get(productId)) {
       case (?product) {
         let cart = getCartInternal(caller);
-        let existingItem = cart.items.find(func(item) { item.productId == productId });
+        let existingItem = cart.items.find(func(item : CartItem) : Bool { item.productId == productId });
         let newItems = switch (existingItem) {
           case (?_) {
-            cart.items.map(func(item) {
+            cart.items.map(func(item : CartItem) : CartItem {
               if (item.productId == productId) { { item with quantity = item.quantity + quantity } }
               else { item };
             });
           };
-          case (null) { cart.items.concat([ { productId; quantity } ]) };
+          case (null) { cart.items.concat([{ productId; quantity }]) };
         };
-        let newTotal = cart.total + (product.price * quantity);
-        carts.add(caller, { items = newItems; total = newTotal });
-        cartsStable := carts.entries().toArray();
+        carts.add(caller, { items = newItems; total = cart.total + (product.price * quantity) });
       };
       case (null) { Runtime.trap("Product not found") };
     };
   };
 
   public shared ({ caller }) func removeFromCart(productId : Nat) : async () {
-    let cart = getCartInternal(caller);
-    let filteredItems = cart.items.filter(func(item) { item.productId != productId });
-    let removed = cart.items.find(func(item) { item.productId == productId });
-    let removedCost = switch (removed, products.get(productId)) {
-      case (?item, ?product) { product.price * item.quantity };
-      case (_,  _) { 0 };
+    if (caller.isAnonymous()) {
+      Runtime.trap("Must be logged in to use cart");
     };
-    let newTotal = if (cart.total >= removedCost) { cart.total - removedCost } else { 0 };
+    let cart = getCartInternal(caller);
+    let filteredItems = cart.items.filter(func(item : CartItem) : Bool { item.productId != productId });
+    let newTotal = switch (products.get(productId)) {
+      case (?product) {
+        switch (cart.items.find(func(item : CartItem) : Bool { item.productId == productId })) {
+          case (?item) { cart.total - (product.price * item.quantity) };
+          case (null) { cart.total };
+        };
+      };
+      case (null) { cart.total };
+    };
     carts.add(caller, { items = filteredItems; total = newTotal });
-    cartsStable := carts.entries().toArray();
   };
 
   public query ({ caller }) func getCart() : async Cart {
+    if (caller.isAnonymous()) { return { items = []; total = 0 } };
     getCartInternal(caller);
   };
 
   public shared ({ caller }) func clearCart() : async () {
     carts.remove(caller);
-    cartsStable := carts.entries().toArray();
   };
 };

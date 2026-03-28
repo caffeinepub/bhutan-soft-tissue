@@ -38,11 +38,13 @@ module {
   };
 
   public func getUserRole(state : AccessControlState, caller : Principal) : UserRole {
-    if (caller.isAnonymous()) { return #guest };
+    // Check role map first (allows anonymous principals to be granted roles explicitly)
     switch (state.userRoles.get(caller)) {
       case (?role) { role };
       case (null) {
-        Runtime.trap("User is not registered");
+        if (caller.isAnonymous()) { #guest } else {
+          Runtime.trap("User is not registered");
+        };
       };
     };
   };

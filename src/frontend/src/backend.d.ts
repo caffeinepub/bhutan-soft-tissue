@@ -46,21 +46,23 @@ export enum UserRole {
 export interface backendInterface {
     addProduct(product: Product): Promise<void>;
     addToCart(productId: bigint, quantity: bigint): Promise<void>;
-    assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    adminPasswordLogin(hash: string): Promise<boolean>;
+    changeAdminPassword(currentHash: string, newHash: string): Promise<boolean>;
     claimAdmin(): Promise<boolean>;
     clearCart(): Promise<void>;
     deleteProduct(id: bigint): Promise<void>;
     getAllOrders(): Promise<Array<Order>>;
     getAllProducts(): Promise<Array<Product>>;
-    getCallerUserRole(): Promise<UserRole>;
     getCart(): Promise<Cart>;
+    getFailedLoginAttempts(): Promise<bigint>;
+    getLoginLockoutSeconds(): Promise<bigint>;
     getOrder(id: bigint): Promise<Order>;
     getProduct(id: bigint): Promise<Product>;
-    initialize(): Promise<void>;
     isAdminClaimed(): Promise<boolean>;
-    isCallerAdmin(): Promise<boolean>;
+    isAdminPasswordSet(): Promise<boolean>;
     placeOrder(customerName: string, phone: string, address: string): Promise<bigint>;
     removeFromCart(productId: bigint): Promise<void>;
+    setupAdminPassword(hash: string): Promise<boolean>;
     updateOrderStatus(id: bigint, status: string): Promise<void>;
     updateProduct(id: bigint, product: Product): Promise<void>;
 }
