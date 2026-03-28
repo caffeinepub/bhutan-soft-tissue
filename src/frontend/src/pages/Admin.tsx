@@ -403,11 +403,28 @@ export default function Admin() {
     try {
       const hash = await sha256hex(loginPassword);
       const storedHash = getStoredHash();
-      if (hash === storedHash) {
-        resetAttempts();
+      // If localStorage is empty (e.g. new device/browser), verify directly against the backend
+      const localMatch = storedHash !== null && hash === storedHash;
+      let backendMatch = false;
+      if (!localMatch) {
         try {
-          await adminPasswordLoginMutation.mutateAsync(hash);
-        } catch {}
+          backendMatch = (await adminPasswordLoginMutation.mutateAsync(
+            hash,
+          )) as unknown as boolean;
+        } catch {
+          backendMatch = false;
+        }
+      }
+      if (localMatch || backendMatch) {
+        resetAttempts();
+        // Always persist hash to localStorage so future admin operations work
+        localStorage.setItem(STORAGE_HASH_KEY, hash);
+        if (localMatch) {
+          // Also notify backend so principal is updated
+          try {
+            await adminPasswordLoginMutation.mutateAsync(hash);
+          } catch {}
+        }
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminAuthenticated(true);
         queryClient.invalidateQueries({ queryKey: ["orders"] });
@@ -531,7 +548,8 @@ export default function Admin() {
       setProductModalOpen(false);
     } catch (err) {
       console.error("Failed to save product:", err);
-      toast.error("Failed to save product");
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to save product: ${msg}`);
     }
   };
   const handleDelete = async (id: bigint) => {

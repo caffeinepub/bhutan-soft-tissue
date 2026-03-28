@@ -192,7 +192,7 @@ export default function Admin() {
         return;
       }
       setForm((prev) => ({ ...prev, imageUrl: compressed }));
-    } catch {
+    } catch (_err) {
       toast.error("Failed to process image. Please try another photo.");
     }
   };
@@ -220,7 +220,7 @@ export default function Admin() {
       } else {
         setSetupError("Setup failed. Admin password may already be set.");
       }
-    } catch {
+    } catch (_err) {
       setSetupError("An error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -251,7 +251,7 @@ export default function Admin() {
         await refetchLockout();
         setLoginError("Incorrect password.");
       }
-    } catch {
+    } catch (_err) {
       setLoginError("An error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -286,7 +286,7 @@ export default function Admin() {
       } else {
         setChangeError("Current password is incorrect.");
       }
-    } catch {
+    } catch (_err) {
       setChangeError("An error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -585,8 +585,10 @@ export default function Admin() {
         toast.success("Product added");
       }
       setProductModalOpen(false);
-    } catch {
-      toast.error("Failed to save product");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save product",
+      );
     }
   };
 
@@ -595,7 +597,7 @@ export default function Admin() {
       await deleteProduct.mutateAsync(id);
       toast.success("Product deleted");
       setDeleteConfirm(null);
-    } catch {
+    } catch (_err) {
       toast.error("Failed to delete product");
     }
   };

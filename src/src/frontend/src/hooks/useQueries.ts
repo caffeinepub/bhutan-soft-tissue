@@ -5,15 +5,15 @@ import { useActor } from "./useActor";
 const ADMIN_HASH_KEY = "opal_admin_hash";
 
 export function getStoredAdminHash(): string {
-  return sessionStorage.getItem(ADMIN_HASH_KEY) ?? "";
+  return localStorage.getItem(ADMIN_HASH_KEY) ?? "";
 }
 
 export function storeAdminHash(hash: string) {
-  sessionStorage.setItem(ADMIN_HASH_KEY, hash);
+  localStorage.setItem(ADMIN_HASH_KEY, hash);
 }
 
 export function clearAdminHash() {
-  sessionStorage.removeItem(ADMIN_HASH_KEY);
+  localStorage.removeItem(ADMIN_HASH_KEY);
 }
 
 export function useProducts() {
