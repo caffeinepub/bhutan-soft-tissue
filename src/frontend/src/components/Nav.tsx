@@ -5,7 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Home, LogOut, ShoppingCart, User } from "lucide-react";
+import { Home, LogOut, ShoppingBag, ShoppingCart, User } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import type { Page } from "../App";
@@ -91,6 +91,19 @@ export default function Nav({
               </button>
               <button
                 type="button"
+                data-ocid="nav.order.link"
+                onClick={() => onNavigate("order")}
+                className={`text-sm font-medium transition-colors flex items-center gap-1.5 px-3 py-1 rounded-full border-2 ${
+                  currentPage === "order"
+                    ? "bg-brand-forest text-white border-brand-forest"
+                    : "text-brand-forest border-brand-forest hover:bg-brand-forest hover:text-white"
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                Order Now
+              </button>
+              <button
+                type="button"
                 data-ocid="nav.wholesale.button"
                 onClick={() => setWholesaleOpen(true)}
                 className="text-sm font-medium transition-colors hover:text-brand-orange text-brand-forest"
@@ -112,6 +125,21 @@ export default function Nav({
             </nav>
 
             <div className="flex items-center gap-2">
+              {/* Mobile Order Now */}
+              <Button
+                variant="ghost"
+                size="icon"
+                data-ocid="nav.order.button"
+                onClick={() => onNavigate("order")}
+                className="md:hidden relative"
+                title="Order Now"
+              >
+                <ShoppingBag
+                  className={`w-5 h-5 ${
+                    currentPage === "order" ? "text-brand-forest" : ""
+                  }`}
+                />
+              </Button>
               {loggedUser ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

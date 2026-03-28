@@ -4,9 +4,10 @@ import CartDrawer from "./components/CartDrawer";
 import Nav from "./components/Nav";
 import Admin from "./pages/Admin";
 import Home from "./pages/Home";
+import OrderDashboard from "./pages/OrderDashboard";
 import Shop from "./pages/Shop";
 
-export type Page = "home" | "shop" | "admin";
+export type Page = "home" | "shop" | "admin" | "order";
 
 export default function App() {
   const [page, setPage] = useState<Page>("home");
@@ -27,6 +28,7 @@ export default function App() {
       {page === "home" && <Home onNavigate={handleNavigate} />}
       {page === "shop" && <Shop onNavigate={handleNavigate} />}
       {page === "admin" && <Admin />}
+      {page === "order" && <OrderDashboard />}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
       <Toaster richColors position="top-right" />
     </div>
