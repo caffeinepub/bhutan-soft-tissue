@@ -26,11 +26,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Check,
+  Copy,
   ImagePlus,
   KeyRound,
   Loader2,
   Lock,
   LogOut,
+  MessageSquare,
   Pencil,
   Plus,
   ShieldCheck,
@@ -55,8 +58,80 @@ import {
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   confirmed: "bg-blue-100 text-blue-800",
+  out_for_delivery: "bg-purple-100 text-purple-800",
   delivered: "bg-green-100 text-green-800",
+  canceled: "bg-red-100 text-red-800",
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  canceled: "Canceled",
+};
+
+function getMessageTemplate(
+  status: string,
+  customerName: string,
+): string | null {
+  switch (status) {
+    case "confirmed":
+      return `Hello ${customerName},
+
+Your order with Bhutan Soft Tissue (Opal Tissue) has been confirmed.
+
+We are currently preparing your napkin and roll tissue products for delivery.
+
+Thank you for choosing our wholesale service.
+
+We will notify you once the order is dispatched.
+
+Bhutan Soft Tissue (Opal Tissue)
+Wholesale Supply
+Phone: +975-17259599`;
+    case "out_for_delivery":
+      return `Hello ${customerName},
+
+Your order from Bhutan Soft Tissue (Opal Tissue) is now out for delivery.
+
+Our delivery team will reach you shortly. Please be available to receive the products.
+
+Thank you.
+
+Bhutan Soft Tissue (Opal Tissue)
+Wholesale Supply
+Phone: +975-17259599`;
+    case "delivered":
+      return `Hello ${customerName},
+
+Your order from Bhutan Soft Tissue (Opal Tissue) has been successfully delivered.
+
+We hope you received the products in good condition. Thank you for choosing us for your tissue supply.
+
+Please reply CONFIRMED to confirm the delivery.
+
+If you need more napkin or roll tissue supplies, feel free to contact us anytime.
+
+Bhutan Soft Tissue (Opal Tissue)
+Wholesale Supply
+Phone: +975-17259599`;
+    case "canceled":
+      return `Hello ${customerName},
+
+Your order with Bhutan Soft Tissue (Opal Tissue) has been canceled.
+
+We apologize for any inconvenience caused. If you would like to place a new order for napkin or roll tissue, please contact us anytime.
+
+Thank you for your understanding.
+
+Bhutan Soft Tissue (Opal Tissue)
+Wholesale Supply
+Phone: +975-17259599`;
+    default:
+      return null;
+  }
+}
 
 const EMPTY_FORM = {
   name: "",
@@ -118,6 +193,13 @@ export default function Admin() {
   const [changeNew, setChangeNew] = useState("");
   const [changeConfirm, setChangeConfirm] = useState("");
   const [changeError, setChangeError] = useState("");
+
+  // Message template modal
+  const [messageModal, setMessageModal] = useState<{
+    message: string;
+    status: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Backend auth mutations
   const adminPasswordLoginMutation = useAdminPasswordLogin();
@@ -206,14 +288,11 @@ export default function Admin() {
     setIsSubmitting(true);
     try {
       const hash = await sha256hex(setupPassword);
-      // Store in localStorage
       localStorage.setItem(STORAGE_HASH_KEY, hash);
       resetAttempts();
-      // Also register on backend (grants admin role)
       try {
         await setupAdminPasswordMutation.mutateAsync(hash);
       } catch {
-        // Backend may already have a password set — fall back to login
         await adminPasswordLoginMutation.mutateAsync(hash);
       }
       sessionStorage.setItem(SESSION_KEY, "true");
@@ -229,7 +308,6 @@ export default function Admin() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
-    // Check lockout
     const lockoutUntil = getLockoutUntil();
     if (Date.now() < lockoutUntil) {
       const secs = Math.ceil((lockoutUntil - Date.now()) / 1000);
@@ -246,11 +324,10 @@ export default function Admin() {
       const storedHash = getStoredHash();
       if (hash === storedHash) {
         resetAttempts();
-        // Grant admin role on backend for this session
         try {
           await adminPasswordLoginMutation.mutateAsync(hash);
         } catch {
-          // Backend call failed (network issue etc.) — still allow frontend login
+          // Backend call failed — still allow frontend login
         }
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminAuthenticated(true);
@@ -315,6 +392,30 @@ export default function Admin() {
     setIsAdminAuthenticated(false);
     setLoginPassword("");
     setLoginError("");
+  };
+
+  const handleStatusChange = (
+    orderId: bigint,
+    newStatus: string,
+    customerName: string,
+  ) => {
+    updateStatus.mutate({ id: orderId, status: newStatus });
+    const msg = getMessageTemplate(newStatus, customerName);
+    if (msg) {
+      setMessageModal({ message: msg, status: newStatus });
+      setCopied(false);
+    }
+  };
+
+  const handleCopyMessage = async () => {
+    if (!messageModal) return;
+    try {
+      await navigator.clipboard.writeText(messageModal.message);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      toast.error("Could not copy. Please select and copy the text manually.");
+    }
   };
 
   // Setup password (first time)
@@ -649,6 +750,15 @@ export default function Admin() {
           </TabsList>
 
           <TabsContent value="orders">
+            {/* Message template info banner */}
+            <div className="mb-4 flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
+              <MessageSquare className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                When you update an order status, a WhatsApp/SMS message will
+                appear automatically — ready to copy and send to the customer.
+              </span>
+            </div>
+
             {orders.length === 0 ? (
               <div
                 data-ocid="admin.orders.empty_state"
@@ -670,7 +780,7 @@ export default function Admin() {
                       <TableHead>Address</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Update</TableHead>
+                      <TableHead>Update Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -696,19 +806,23 @@ export default function Admin() {
                           <Badge
                             className={`text-xs ${STATUS_COLORS[order.status] ?? "bg-gray-100 text-gray-700"}`}
                           >
-                            {order.status}
+                            {STATUS_LABELS[order.status] ?? order.status}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Select
                             defaultValue={order.status}
                             onValueChange={(val) =>
-                              updateStatus.mutate({ id: order.id, status: val })
+                              handleStatusChange(
+                                order.id,
+                                val,
+                                order.customerName,
+                              )
                             }
                           >
                             <SelectTrigger
                               data-ocid={`admin.orders.select.${idx + 1}`}
-                              className="w-32 h-8 text-xs"
+                              className="w-40 h-8 text-xs"
                             >
                               <SelectValue />
                             </SelectTrigger>
@@ -717,9 +831,13 @@ export default function Admin() {
                               <SelectItem value="confirmed">
                                 Confirmed
                               </SelectItem>
+                              <SelectItem value="out_for_delivery">
+                                Out for Delivery
+                              </SelectItem>
                               <SelectItem value="delivered">
                                 Delivered
                               </SelectItem>
+                              <SelectItem value="canceled">Canceled</SelectItem>
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -825,6 +943,61 @@ export default function Admin() {
         </Tabs>
       </div>
 
+      {/* WhatsApp/SMS Message Template Modal */}
+      <Dialog open={!!messageModal} onOpenChange={() => setMessageModal(null)}>
+        <DialogContent
+          className="bg-white max-w-md"
+          data-ocid="admin.message.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl text-brand-forest flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              {messageModal && (
+                <span>
+                  Message —{" "}
+                  {STATUS_LABELS[messageModal.status] ?? messageModal.status}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mt-1 mb-3">
+            Copy this message and send it to the customer via WhatsApp or SMS.
+          </p>
+          {messageModal && (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                {messageModal.message}
+              </pre>
+            </div>
+          )}
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="outline"
+              data-ocid="admin.message.close_button"
+              onClick={() => setMessageModal(null)}
+              className="flex-1"
+            >
+              Close
+            </Button>
+            <Button
+              data-ocid="admin.message.copy_button"
+              onClick={handleCopyMessage}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-4 h-4 mr-2" /> Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 mr-2" /> Copy Message
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Product Modal */}
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
         <DialogContent
@@ -923,6 +1096,7 @@ export default function Admin() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                capture="environment"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];

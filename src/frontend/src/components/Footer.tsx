@@ -169,7 +169,6 @@ export default function Footer({ onNavigate }: FooterProps) {
             </div>
             <div className="text-sm text-white/70 space-y-1">
               <p>📞 +975-17259599</p>
-              <p>✉ bhutansofttissue@gmail.com</p>
               <p>📍 Toribari: Phuntsholing Thromde, Pasakha, Chukha, Bhutan</p>
             </div>
           </div>
