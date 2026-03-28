@@ -43,9 +43,11 @@ import { toast } from "sonner";
 import type { Product } from "../backend.d";
 import {
   useAddProduct,
+  useAdminPasswordLogin,
   useDeleteProduct,
   useOrders,
   useProducts,
+  useSetupAdminPassword,
   useUpdateOrderStatus,
   useUpdateProduct,
 } from "../hooks/useQueries";
@@ -117,7 +119,12 @@ export default function Admin() {
   const [changeConfirm, setChangeConfirm] = useState("");
   const [changeError, setChangeError] = useState("");
 
+  // Backend auth mutations
+  const adminPasswordLoginMutation = useAdminPasswordLogin();
+  const setupAdminPasswordMutation = useSetupAdminPassword();
+
   const isAdminPasswordSet = !!getStoredHash();
+
   // Live countdown for lockout
   useEffect(() => {
     const until = getLockoutUntil();
@@ -199,8 +206,16 @@ export default function Admin() {
     setIsSubmitting(true);
     try {
       const hash = await sha256hex(setupPassword);
+      // Store in localStorage
       localStorage.setItem(STORAGE_HASH_KEY, hash);
       resetAttempts();
+      // Also register on backend (grants admin role)
+      try {
+        await setupAdminPasswordMutation.mutateAsync(hash);
+      } catch {
+        // Backend may already have a password set — fall back to login
+        await adminPasswordLoginMutation.mutateAsync(hash);
+      }
       sessionStorage.setItem(SESSION_KEY, "true");
       setIsAdminAuthenticated(true);
       toast.success("Admin password created. You are now logged in.");
@@ -231,6 +246,12 @@ export default function Admin() {
       const storedHash = getStoredHash();
       if (hash === storedHash) {
         resetAttempts();
+        // Grant admin role on backend for this session
+        try {
+          await adminPasswordLoginMutation.mutateAsync(hash);
+        } catch {
+          // Backend call failed (network issue etc.) — still allow frontend login
+        }
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminAuthenticated(true);
         setLoginPassword("");
@@ -941,7 +962,7 @@ export default function Admin() {
                 >
                   <ImagePlus className="w-8 h-8 text-brand-forest/50" />
                   <span className="text-sm text-brand-forest/70 font-medium">
-                    Tap to choose photo
+                    Tap to choose from gallery or camera
                   </span>
                   <span className="text-xs text-muted-foreground">
                     From gallery or camera

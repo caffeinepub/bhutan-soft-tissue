@@ -5,7 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, ShoppingCart, User } from "lucide-react";
+import { Home, LogOut, ShoppingCart, User } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import type { Page } from "../App";
@@ -58,13 +58,10 @@ export default function Nav({
               type="button"
               data-ocid="nav.link"
               onClick={() => onNavigate("home")}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 text-brand-forest hover:text-brand-orange transition-colors font-semibold text-lg"
             >
-              <img
-                src="/assets/uploads/img_9269-019d214c-9de5-726a-8245-19264c021580-1.jpeg"
-                alt="Bhutan Soft Tissue Logo"
-                className="h-12 w-auto"
-              />
+              <Home className="w-6 h-6" />
+              <span>Home</span>
             </button>
 
             <nav className="hidden md:flex items-center gap-6">
