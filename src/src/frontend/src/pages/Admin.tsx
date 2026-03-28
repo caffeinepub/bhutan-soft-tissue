@@ -42,6 +42,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Product } from "../backend.d";
 import {
+  clearAdminHash,
+  storeAdminHash,
   useAddProduct,
   useAdminPasswordLogin,
   useChangeAdminPassword,
@@ -86,7 +88,7 @@ async function compressImage(file: File): Promise<string> {
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const MAX = 400;
+      const MAX = 300;
       let { width, height } = img;
       if (width > MAX || height > MAX) {
         if (width > height) {
@@ -103,7 +105,7 @@ async function compressImage(file: File): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) return reject(new Error("Canvas not supported"));
       ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL("image/jpeg", 0.5));
+      resolve(canvas.toDataURL("image/jpeg", 0.4));
     };
     img.onerror = () => reject(new Error("Image load failed"));
     img.src = objectUrl;
@@ -175,6 +177,7 @@ export default function Admin() {
       sessionStorage.setItem(SESSION_KEY, "true");
     } else {
       sessionStorage.removeItem(SESSION_KEY);
+      clearAdminHash();
     }
   }, [isAdminAuthenticated]);
 
@@ -211,6 +214,7 @@ export default function Admin() {
       const ok = await setupAdminPasswordMutation.mutateAsync(hash);
       if (ok) {
         sessionStorage.setItem(SESSION_KEY, "true");
+        storeAdminHash(hash);
         setIsAdminAuthenticated(true);
         toast.success("Admin password created. You are now logged in.");
       } else {
@@ -240,6 +244,7 @@ export default function Admin() {
       const ok = await adminPasswordLoginMutation.mutateAsync(hash);
       if (ok) {
         sessionStorage.setItem(SESSION_KEY, "true");
+        storeAdminHash(hash);
         setIsAdminAuthenticated(true);
         setLoginPassword("");
       } else {
@@ -290,6 +295,7 @@ export default function Admin() {
 
   const handleSignOut = () => {
     sessionStorage.removeItem(SESSION_KEY);
+    clearAdminHash();
     setIsAdminAuthenticated(false);
     setLoginPassword("");
     setLoginError("");

@@ -430,6 +430,55 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    // Hash-authenticated admin methods - reliable when using anonymous identity
+    async addProductWithHash(hash: string, product: Product): Promise<any> {
+        const result = await this.actor.addProductWithHash(hash, product);
+        return result;
+    }
+    async updateProductWithHash(hash: string, id: bigint, product: Product): Promise<any> {
+        const result = await this.actor.updateProductWithHash(hash, id, product);
+        return result;
+    }
+    async deleteProductWithHash(hash: string, id: bigint): Promise<any> {
+        const result = await this.actor.deleteProductWithHash(hash, id);
+        return result;
+    }
+    async updateOrderStatusWithHash(hash: string, id: bigint, status: string): Promise<any> {
+        const result = await this.actor.updateOrderStatusWithHash(hash, id, status);
+        return result;
+    }
+    async getAllOrdersWithHash(hash: string): Promise<any[]> {
+        const result = await this.actor.getAllOrdersWithHash(hash);
+        return result;
+    }
+    async updateProductStockWithHash(hash: string, id: bigint, stock: bigint): Promise<any> {
+        const result = await this.actor.updateProductStockWithHash(hash, id, stock);
+        return result;
+    }
+    async adminPasswordLogin(hash: string): Promise<boolean> {
+        const result = await this.actor.adminPasswordLogin(hash);
+        return result;
+    }
+    async setupAdminPassword(hash: string): Promise<boolean> {
+        const result = await this.actor.setupAdminPassword(hash);
+        return result;
+    }
+    async isAdminPasswordSet(): Promise<boolean> {
+        const result = await this.actor.isAdminPasswordSet();
+        return result;
+    }
+    async getLoginLockoutSeconds(): Promise<bigint> {
+        const result = await this.actor.getLoginLockoutSeconds();
+        return result;
+    }
+    async getFailedLoginAttempts(): Promise<bigint> {
+        const result = await this.actor.getFailedLoginAttempts();
+        return result;
+    }
+    async changeAdminPassword(currentHash: string, newHash: string): Promise<boolean> {
+        const result = await this.actor.changeAdminPassword(currentHash, newHash);
+        return result;
+    }
 }
 function from_candid_UserRole_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
     return from_candid_variant_n4(_uploadFile, _downloadFile, value);

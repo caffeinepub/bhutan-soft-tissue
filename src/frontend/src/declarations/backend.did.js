@@ -8,6 +8,8 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+const AdminResult = IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text });
+
 export const Product = IDL.Record({
   'id' : IDL.Nat,
   'name' : IDL.Text,
@@ -48,6 +50,12 @@ export const Cart = IDL.Record({
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addProduct' : IDL.Func([Product], [], []),
+  'addProductWithHash' : IDL.Func([IDL.Text, Product], [AdminResult], []),
+  'updateProductWithHash' : IDL.Func([IDL.Text, IDL.Nat, Product], [AdminResult], []),
+  'deleteProductWithHash' : IDL.Func([IDL.Text, IDL.Nat], [AdminResult], []),
+  'updateOrderStatusWithHash' : IDL.Func([IDL.Text, IDL.Nat, IDL.Text], [AdminResult], []),
+  'getAllOrdersWithHash' : IDL.Func([IDL.Text], [IDL.Vec(Order)], []),
+  'updateProductStockWithHash' : IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [AdminResult], []),
   'addToCart' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'clearCart' : IDL.Func([], [], []),
@@ -70,11 +78,14 @@ export const idlService = IDL.Service({
   'setupAdminPassword' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'adminPasswordLogin' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'changeAdminPassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
+  'getLoginLockoutSeconds' : IDL.Func([], [IDL.Nat], ['query']),
+  'getFailedLoginAttempts' : IDL.Func([], [IDL.Nat], ['query']),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const AdminResult = IDL.Variant({ 'ok': IDL.Null, 'err': IDL.Text });
   const Product = IDL.Record({
     'id' : IDL.Nat,
     'name' : IDL.Text,
@@ -109,6 +120,12 @@ export const idlFactory = ({ IDL }) => {
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addProduct' : IDL.Func([Product], [], []),
+    'addProductWithHash' : IDL.Func([IDL.Text, Product], [AdminResult], []),
+    'updateProductWithHash' : IDL.Func([IDL.Text, IDL.Nat, Product], [AdminResult], []),
+    'deleteProductWithHash' : IDL.Func([IDL.Text, IDL.Nat], [AdminResult], []),
+    'updateOrderStatusWithHash' : IDL.Func([IDL.Text, IDL.Nat, IDL.Text], [AdminResult], []),
+    'getAllOrdersWithHash' : IDL.Func([IDL.Text], [IDL.Vec(Order)], []),
+    'updateProductStockWithHash' : IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [AdminResult], []),
     'addToCart' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'clearCart' : IDL.Func([], [], []),
@@ -131,6 +148,8 @@ export const idlFactory = ({ IDL }) => {
     'setupAdminPassword' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'adminPasswordLogin' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'changeAdminPassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
+    'getLoginLockoutSeconds' : IDL.Func([], [IDL.Nat], ['query']),
+    'getFailedLoginAttempts' : IDL.Func([], [IDL.Nat], ['query']),
   });
 };
 

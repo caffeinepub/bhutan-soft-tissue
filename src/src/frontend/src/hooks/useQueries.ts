@@ -2,6 +2,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Order, Product } from "../backend.d";
 import { useActor } from "./useActor";
 
+const ADMIN_HASH_KEY = "opal_admin_hash";
+
+export function getStoredAdminHash(): string {
+  return sessionStorage.getItem(ADMIN_HASH_KEY) ?? "";
+}
+
+export function storeAdminHash(hash: string) {
+  sessionStorage.setItem(ADMIN_HASH_KEY, hash);
+}
+
+export function clearAdminHash() {
+  sessionStorage.removeItem(ADMIN_HASH_KEY);
+}
+
 export function useProducts() {
   const { actor, isFetching } = useActor();
   return useQuery<Product[]>({
@@ -129,6 +143,17 @@ export function useUpdateOrderStatus() {
   return useMutation({
     mutationFn: async ({ id, status }: { id: bigint; status: string }) => {
       if (!actor) throw new Error("Not connected");
+      const hash = getStoredAdminHash();
+      if (hash) {
+        // Use hash-based auth (reliable with anonymous identity)
+        const result = (await (actor as any).updateOrderStatusWithHash(
+          hash,
+          id,
+          status,
+        )) as { ok: null } | { err: string };
+        if ("err" in result) throw new Error(result.err);
+        return result;
+      }
       return actor.updateOrderStatus(id, status);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["orders"] }),
@@ -141,7 +166,13 @@ export function useAddProduct() {
   return useMutation({
     mutationFn: async (product: Product) => {
       if (!actor) throw new Error("Not connected");
-      return actor.addProduct(product);
+      const hash = getStoredAdminHash();
+      if (!hash) throw new Error("Not authenticated as admin");
+      const result = (await (actor as any).addProductWithHash(hash, product)) as
+        | { ok: null }
+        | { err: string };
+      if ("err" in result) throw new Error(result.err);
+      return result;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
@@ -153,7 +184,15 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: async ({ id, product }: { id: bigint; product: Product }) => {
       if (!actor) throw new Error("Not connected");
-      return actor.updateProduct(id, product);
+      const hash = getStoredAdminHash();
+      if (!hash) throw new Error("Not authenticated as admin");
+      const result = (await (actor as any).updateProductWithHash(
+        hash,
+        id,
+        product,
+      )) as { ok: null } | { err: string };
+      if ("err" in result) throw new Error(result.err);
+      return result;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
@@ -165,7 +204,13 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not connected");
-      return actor.deleteProduct(id);
+      const hash = getStoredAdminHash();
+      if (!hash) throw new Error("Not authenticated as admin");
+      const result = (await (actor as any).deleteProductWithHash(hash, id)) as
+        | { ok: null }
+        | { err: string };
+      if ("err" in result) throw new Error(result.err);
+      return result;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });

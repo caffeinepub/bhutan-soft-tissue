@@ -2,6 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Order, Product } from "../backend.d";
 import { useActor } from "./useActor";
 
+// Helper: get stored admin hash from localStorage
+const getAdminHash = (): string =>
+  localStorage.getItem("opal_admin_pw_hash") ?? "";
+
+// Helper: unwrap AdminResult and throw on error
+function unwrapAdminResult(result: { ok: null } | { err: string }): void {
+  if ("err" in result) throw new Error(result.err);
+}
+
 export function useProducts() {
   const { actor, isFetching } = useActor();
   return useQuery<Product[]>({
@@ -32,7 +41,10 @@ export function useOrders() {
     queryKey: ["orders"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getAllOrders();
+      const hash = getAdminHash();
+      if (!hash) return [];
+      // Use hash-authenticated call to get all orders reliably
+      return (actor as any).getAllOrdersWithHash(hash);
     },
     enabled: !!actor && !isFetching,
   });
@@ -129,7 +141,18 @@ export function useUpdateOrderStatus() {
   return useMutation({
     mutationFn: async ({ id, status }: { id: bigint; status: string }) => {
       if (!actor) throw new Error("Not connected");
-      return actor.updateOrderStatus(id, status);
+      const hash = getAdminHash();
+      if (hash) {
+        // Use hash-authenticated call -- reliable with anonymous identity
+        const result = await (actor as any).updateOrderStatusWithHash(
+          hash,
+          id,
+          status,
+        );
+        unwrapAdminResult(result);
+      } else {
+        return actor.updateOrderStatus(id, status);
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["orders"] }),
   });
@@ -141,7 +164,11 @@ export function useAddProduct() {
   return useMutation({
     mutationFn: async (product: Product) => {
       if (!actor) throw new Error("Not connected");
-      return actor.addProduct(product);
+      const hash = getAdminHash();
+      if (!hash) throw new Error("Admin not authenticated");
+      // Use hash-authenticated call -- bypasses principal-based auth that fails with anonymous identity
+      const result = await (actor as any).addProductWithHash(hash, product);
+      unwrapAdminResult(result);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
@@ -153,7 +180,14 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: async ({ id, product }: { id: bigint; product: Product }) => {
       if (!actor) throw new Error("Not connected");
-      return actor.updateProduct(id, product);
+      const hash = getAdminHash();
+      if (!hash) throw new Error("Admin not authenticated");
+      const result = await (actor as any).updateProductWithHash(
+        hash,
+        id,
+        product,
+      );
+      unwrapAdminResult(result);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
@@ -165,7 +199,29 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Not connected");
-      return actor.deleteProduct(id);
+      const hash = getAdminHash();
+      if (!hash) throw new Error("Admin not authenticated");
+      const result = await (actor as any).deleteProductWithHash(hash, id);
+      unwrapAdminResult(result);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
+  });
+}
+
+export function useUpdateProductStock() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, stock }: { id: bigint; stock: bigint }) => {
+      if (!actor) throw new Error("Not connected");
+      const hash = getAdminHash();
+      if (!hash) throw new Error("Admin not authenticated");
+      const result = await (actor as any).updateProductStockWithHash(
+        hash,
+        id,
+        stock,
+      );
+      unwrapAdminResult(result);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });

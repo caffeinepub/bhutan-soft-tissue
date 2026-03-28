@@ -518,15 +518,6 @@ export default function Admin() {
   };
   const handleSave = async () => {
     try {
-      // Re-authenticate with backend before saving to ensure admin role is active
-      const hash = getStoredHash();
-      if (hash && actor) {
-        try {
-          await (actor as any).adminPasswordLogin(hash);
-        } catch {
-          // ignore auth errors, proceed anyway
-        }
-      }
       if (editingProduct) {
         await updateProductMutation.mutateAsync({
           id: editingProduct.id,

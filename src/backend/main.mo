@@ -97,6 +97,15 @@ actor {
     };
   };
 
+  // Helper: validate admin password hash directly (bypasses principal check)
+  // This is the reliable auth method since the frontend uses anonymous identity
+  func checkAdminHash(hash : Text) : Bool {
+    switch (adminPasswordHash) {
+      case (null) { false };
+      case (?storedHash) { storedHash == hash };
+    };
+  };
+
   // ADMIN PASSWORD AUTH
 
   public query func isAdminPasswordSet() : async Bool {
@@ -164,7 +173,7 @@ actor {
     };
   };
 
-  public shared ({ caller }) func changeAdminPassword(currentHash : Text, newHash : Text) : async Bool {
+  public shared func changeAdminPassword(currentHash : Text, newHash : Text) : async Bool {
     let now = Time.now();
     if (loginLockedUntilNanos > now) {
       return false;
@@ -189,11 +198,11 @@ actor {
     };
   };
 
-  public shared ({ caller }) func claimAdmin() : async Bool { false };
+  public shared func claimAdmin() : async Bool { false };
 
   public query func isAdminClaimed() : async Bool { adminClaimed };
 
-  // PRODUCTS (CRUD)
+  // PRODUCTS (CRUD) - principal-based (kept for compatibility)
   func addProductInternal(product : Product) {
     let newProduct = { product with id = nextProductId };
     products.add(nextProductId, newProduct);
@@ -205,6 +214,74 @@ actor {
       Runtime.trap("Unauthorized: Only admins can add products");
     };
     addProductInternal(product);
+  };
+
+  // Hash-authenticated product operations -- reliable when using anonymous identity
+  // The frontend stores the admin password hash in localStorage and passes it here
+  public shared func addProductWithHash(hash : Text, product : Product) : async { #ok; #err : Text } {
+    if (not checkAdminHash(hash)) {
+      return #err("Unauthorized: invalid admin credentials");
+    };
+    // Validate required fields
+    if (product.name.size() == 0) { return #err("Product name is required") };
+    if (product.category.size() == 0) { return #err("Category is required") };
+    // Image is optional (use empty string if none)
+    addProductInternal(product);
+    #ok;
+  };
+
+  public shared func updateProductWithHash(hash : Text, id : Nat, product : Product) : async { #ok; #err : Text } {
+    if (not checkAdminHash(hash)) {
+      return #err("Unauthorized: invalid admin credentials");
+    };
+    if (not products.containsKey(id)) { return #err("Product not found") };
+    let updatedProduct = { product with id };
+    products.add(id, updatedProduct);
+    #ok;
+  };
+
+  public shared func deleteProductWithHash(hash : Text, id : Nat) : async { #ok; #err : Text } {
+    if (not checkAdminHash(hash)) {
+      return #err("Unauthorized: invalid admin credentials");
+    };
+    if (not products.containsKey(id)) { return #err("Product not found") };
+    products.remove(id);
+    #ok;
+  };
+
+  public shared func updateOrderStatusWithHash(hash : Text, id : Nat, status : Text) : async { #ok; #err : Text } {
+    if (not checkAdminHash(hash)) {
+      return #err("Unauthorized: invalid admin credentials");
+    };
+    switch (orders.get(id)) {
+      case (?order) {
+        orders.add(id, { order with status });
+        #ok;
+      };
+      case (null) { #err("Order not found") };
+    };
+  };
+
+  // Returns orders if hash is valid, empty array otherwise
+  public shared func getAllOrdersWithHash(hash : Text) : async [Order] {
+    if (not checkAdminHash(hash)) {
+      return [];
+    };
+    orders.values().toArray();
+  };
+
+  // Update stock with hash
+  public shared func updateProductStockWithHash(hash : Text, id : Nat, newStock : Nat) : async { #ok; #err : Text } {
+    if (not checkAdminHash(hash)) {
+      return #err("Unauthorized: invalid admin credentials");
+    };
+    switch (products.get(id)) {
+      case (?product) {
+        products.add(id, { product with stock = newStock });
+        #ok;
+      };
+      case (null) { #err("Product not found") };
+    };
   };
 
   public query func getProduct(id : Nat) : async Product {
@@ -340,7 +417,7 @@ actor {
     let newTotal = switch (products.get(productId)) {
       case (?product) {
         switch (cart.items.find(func(item : CartItem) : Bool { item.productId == productId })) {
-          case (?item) { cart.total - (product.price * item.quantity) };
+          case (?item) { let sub = product.price * item.quantity; if (cart.total > sub) { cart.total - sub } else { 0 } };
           case (null) { cart.total };
         };
       };

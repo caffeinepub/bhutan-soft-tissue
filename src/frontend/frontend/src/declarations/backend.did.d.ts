@@ -10,6 +10,7 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export type AdminResult = { 'ok': null } | { 'err': string };
 export interface Cart { 'total' : bigint, 'items' : Array<CartItem> }
 export interface CartItem { 'productId' : bigint, 'quantity' : bigint }
 export interface Order {
@@ -41,6 +42,12 @@ export type UserRole = { 'admin' : null } |
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addProduct' : ActorMethod<[Product], undefined>,
+  'addProductWithHash' : ActorMethod<[string, Product], AdminResult>,
+  'updateProductWithHash' : ActorMethod<[string, bigint, Product], AdminResult>,
+  'deleteProductWithHash' : ActorMethod<[string, bigint], AdminResult>,
+  'updateOrderStatusWithHash' : ActorMethod<[string, bigint, string], AdminResult>,
+  'getAllOrdersWithHash' : ActorMethod<[string], Array<Order>>,
+  'updateProductStockWithHash' : ActorMethod<[string, bigint, bigint], AdminResult>,
   'addToCart' : ActorMethod<[bigint, bigint], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'clearCart' : ActorMethod<[], undefined>,
@@ -63,6 +70,8 @@ export interface _SERVICE {
   'setupAdminPassword' : ActorMethod<[string], boolean>,
   'adminPasswordLogin' : ActorMethod<[string], boolean>,
   'changeAdminPassword' : ActorMethod<[string, string], boolean>,
+  'getLoginLockoutSeconds' : ActorMethod<[], bigint>,
+  'getFailedLoginAttempts' : ActorMethod<[], bigint>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
