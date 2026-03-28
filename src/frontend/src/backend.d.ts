@@ -8,6 +8,7 @@ export interface None {
 }
 export type Option<T> = Some<T> | None;
 export type AdminResult = { ok: null } | { err: string };
+export type SubmitOrderResult = { ok: bigint } | { err: string };
 export interface Cart {
     total: bigint;
     items: Array<CartItem>;
@@ -52,6 +53,7 @@ export interface backendInterface {
     updateOrderStatusWithHash(hash: string, id: bigint, status: string): Promise<AdminResult>;
     getAllOrdersWithHash(hash: string): Promise<Array<Order>>;
     updateProductStockWithHash(hash: string, id: bigint, stock: bigint): Promise<AdminResult>;
+    submitOrder(customerName: string, phone: string, address: string, items: Array<OrderItem>, total: bigint): Promise<SubmitOrderResult>;
     addToCart(productId: bigint, quantity: bigint): Promise<void>;
     adminPasswordLogin(hash: string): Promise<boolean>;
     changeAdminPassword(currentHash: string, newHash: string): Promise<boolean>;

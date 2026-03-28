@@ -49,13 +49,12 @@ actor {
     total : Nat;
   };
 
-  // Keep accessControlState to preserve stable variable compatibility with previous version
+  // Keep accessControlState to preserve stable variable compatibility
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
   // STABLE STATE
   stable var adminPasswordHash : ?Text = null;
-  // Persist admin principal so it survives canister upgrades
   stable var adminPrincipal : ?Principal = null;
   stable var failedLoginAttempts : Nat = 0;
   stable var loginLockedUntilNanos : Int = 0;
@@ -64,12 +63,10 @@ actor {
   stable var nextProductId : Nat = 0;
   stable var nextOrderId : Nat = 0;
 
-  // Stable storage arrays -- use original names to preserve upgrade compatibility
   stable var productsStable : [(Nat, Product)] = [];
   stable var ordersStable : [(Nat, Order)] = [];
   stable var cartsStable : [(Principal, Cart)] = [];
 
-  // In-memory maps restored from stable on upgrade
   let products = Map.fromIter<Nat, Product>(productsStable.vals());
   let orders = Map.fromIter<Nat, Order>(ordersStable.vals());
   let carts = Map.fromIter<Principal, Cart>(cartsStable.vals());
@@ -89,7 +86,6 @@ actor {
     cartsStable := [];
   };
 
-  // Helper: check caller is admin using stable principal
   func isAdmin(caller : Principal) : Bool {
     switch (adminPrincipal) {
       case (?p) { p == caller };
@@ -97,8 +93,6 @@ actor {
     };
   };
 
-  // Helper: validate admin password hash directly (bypasses principal check)
-  // This is the reliable auth method since the frontend uses anonymous identity
   func checkAdminHash(hash : Text) : Bool {
     switch (adminPasswordHash) {
       case (null) { false };
@@ -157,7 +151,6 @@ actor {
         if (storedHash == hash) {
           failedLoginAttempts := 0;
           loginLockedUntilNanos := 0;
-          // Update stable adminPrincipal so checks work after upgrade
           adminPrincipal := ?caller;
           accessControlState.userRoles.add(caller, #admin);
           true;
@@ -202,7 +195,7 @@ actor {
 
   public query func isAdminClaimed() : async Bool { adminClaimed };
 
-  // PRODUCTS (CRUD) - principal-based (kept for compatibility)
+  // PRODUCTS
   func addProductInternal(product : Product) {
     let newProduct = { product with id = nextProductId };
     products.add(nextProductId, newProduct);
@@ -216,23 +209,19 @@ actor {
     addProductInternal(product);
   };
 
-  // Hash-authenticated product operations -- reliable when using anonymous identity
-  // The frontend stores the admin password hash in localStorage and passes it here
   public shared func addProductWithHash(hash : Text, product : Product) : async { #ok; #err : Text } {
     if (not checkAdminHash(hash)) {
-      return #err("Unauthorized: invalid admin credentials");
+      return #err("Authentication failed: invalid admin credentials");
     };
-    // Validate required fields
     if (product.name.size() == 0) { return #err("Product name is required") };
     if (product.category.size() == 0) { return #err("Category is required") };
-    // Image is optional (use empty string if none)
     addProductInternal(product);
     #ok;
   };
 
   public shared func updateProductWithHash(hash : Text, id : Nat, product : Product) : async { #ok; #err : Text } {
     if (not checkAdminHash(hash)) {
-      return #err("Unauthorized: invalid admin credentials");
+      return #err("Authentication failed: invalid admin credentials");
     };
     if (not products.containsKey(id)) { return #err("Product not found") };
     let updatedProduct = { product with id };
@@ -242,7 +231,7 @@ actor {
 
   public shared func deleteProductWithHash(hash : Text, id : Nat) : async { #ok; #err : Text } {
     if (not checkAdminHash(hash)) {
-      return #err("Unauthorized: invalid admin credentials");
+      return #err("Authentication failed: invalid admin credentials");
     };
     if (not products.containsKey(id)) { return #err("Product not found") };
     products.remove(id);
@@ -251,7 +240,7 @@ actor {
 
   public shared func updateOrderStatusWithHash(hash : Text, id : Nat, status : Text) : async { #ok; #err : Text } {
     if (not checkAdminHash(hash)) {
-      return #err("Unauthorized: invalid admin credentials");
+      return #err("Authentication failed: invalid admin credentials");
     };
     switch (orders.get(id)) {
       case (?order) {
@@ -262,7 +251,6 @@ actor {
     };
   };
 
-  // Returns orders if hash is valid, empty array otherwise
   public shared func getAllOrdersWithHash(hash : Text) : async [Order] {
     if (not checkAdminHash(hash)) {
       return [];
@@ -270,10 +258,9 @@ actor {
     orders.values().toArray();
   };
 
-  // Update stock with hash
   public shared func updateProductStockWithHash(hash : Text, id : Nat, newStock : Nat) : async { #ok; #err : Text } {
     if (not checkAdminHash(hash)) {
-      return #err("Unauthorized: invalid admin credentials");
+      return #err("Authentication failed: invalid admin credentials");
     };
     switch (products.get(id)) {
       case (?product) {
@@ -313,6 +300,35 @@ actor {
   };
 
   // ORDERS
+
+  // submitOrder: Allows anonymous customers to place orders directly without a cart.
+  // Items are passed directly, no authentication required.
+  public shared func submitOrder(
+    customerName : Text,
+    phone : Text,
+    address : Text,
+    items : [OrderItem],
+    total : Nat
+  ) : async { #ok : Nat; #err : Text } {
+    if (customerName.size() == 0) { return #err("Order creation failed: customer name is required") };
+    if (phone.size() == 0) { return #err("Order creation failed: phone number is required") };
+    if (items.size() == 0) { return #err("Order creation failed: no items in order") };
+
+    let orderId = nextOrderId;
+    let newOrder : Order = {
+      id = orderId;
+      customerName;
+      phone;
+      address;
+      items;
+      total;
+      status = "Pending";
+    };
+    orders.add(orderId, newOrder);
+    nextOrderId += 1;
+    #ok(orderId);
+  };
+
   public shared ({ caller }) func placeOrder(customerName : Text, phone : Text, address : Text) : async Nat {
     if (caller.isAnonymous()) {
       Runtime.trap("Must be logged in to place an order");
@@ -356,7 +372,6 @@ actor {
     };
   };
 
-  // Returns orders if admin, empty array otherwise (no trap -- safe for pre-login calls)
   public query ({ caller }) func getAllOrders() : async [Order] {
     if (not isAdmin(caller)) {
       return [];

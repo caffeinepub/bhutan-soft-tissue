@@ -143,27 +143,67 @@ export default function OrderDashboard() {
     }
     setIsSubmitting(true);
     try {
-      await actor.clearCart();
+      const items: Array<{
+        productId: bigint;
+        quantity: bigint;
+        price: bigint;
+      }> = [];
+
       if (napkinTotal > 0) {
+        const napkinId = getNapkinId();
         const qty = BigInt(napkin.cartons * 100 + napkin.packets);
-        await actor.addToCart(getNapkinId(), qty > 0n ? qty : 1n);
+        items.push({
+          productId: napkinId,
+          quantity: qty > 0n ? qty : 1n,
+          price: BigInt(PRICING.napkin.carton),
+        });
       }
       if (rollTotal > 0) {
+        const rollId = getRollId();
         const qty = BigInt(roll.cartons * 100 + roll.packets);
-        await actor.addToCart(getRollId(), qty > 0n ? qty : 1n);
+        items.push({
+          productId: rollId,
+          quantity: qty > 0n ? qty : 1n,
+          price: BigInt(PRICING.roll.carton),
+        });
       }
-      const orderId = await actor.placeOrder(
+
+      // Build a rich address that includes carton/packet breakdown for admin display
+      const orderDetails = [
+        napkinTotal > 0
+          ? `Napkin: ${napkin.cartons}c+${napkin.packets}p`
+          : null,
+        rollTotal > 0 ? `Roll: ${roll.cartons}c+${roll.packets}p` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      const fullAddress = [
+        address.trim() || "Not specified",
+        `[${orderDetails}]`,
+      ].join(" ");
+
+      const result = await (actor as any).submitOrder(
         customerName.trim(),
         phone.trim(),
-        address.trim() || "Not specified",
+        fullAddress,
+        items,
+        BigInt(grandTotal),
       );
+
+      if ("err" in result) {
+        toast.error(`Order creation failed: ${result.err}`);
+        return;
+      }
+
+      const orderId = result.ok;
       setActiveOrder({ id: orderId, status: "Order Confirmed" });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      queryClient.invalidateQueries({ queryKey: ["cart"] });
       toast.success("Order placed successfully!");
     } catch (err) {
       console.error(err);
-      toast.error("Failed to place order. Please try again.");
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Order creation failed: ${msg}`);
     } finally {
       setIsSubmitting(false);
     }

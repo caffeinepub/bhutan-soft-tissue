@@ -47,6 +47,7 @@ export function useOrders() {
       return (actor as any).getAllOrdersWithHash(hash);
     },
     enabled: !!actor && !isFetching,
+    refetchInterval: 30000,
   });
 }
 
@@ -59,6 +60,7 @@ export function useIsAdmin() {
       return actor.isCallerAdmin();
     },
     enabled: !!actor && !isFetching,
+    refetchInterval: 30000,
   });
 }
 
@@ -163,11 +165,26 @@ export function useAddProduct() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (product: Product) => {
-      if (!actor) throw new Error("Not connected");
+      // Wait up to 5s for actor to be ready (handles brief null during refetch)
+      let currentActor = actor;
+      if (!currentActor) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          currentActor = qc.getQueryData<any>(["actor", undefined]) as any;
+          if (currentActor) break;
+        }
+      }
+      if (!currentActor)
+        throw new Error(
+          "Not connected to server. Please refresh and try again.",
+        );
       const hash = getAdminHash();
       if (!hash) throw new Error("Admin not authenticated");
       // Use hash-authenticated call -- bypasses principal-based auth that fails with anonymous identity
-      const result = await (actor as any).addProductWithHash(hash, product);
+      const result = await (currentActor as any).addProductWithHash(
+        hash,
+        product,
+      );
       unwrapAdminResult(result);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
@@ -309,5 +326,37 @@ export function useFailedLoginAttempts() {
       return Number(result);
     },
     enabled: !!actor && !isFetching,
+  });
+}
+
+export function useSubmitOrder() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerName,
+      phone,
+      address,
+      items,
+      total,
+    }: {
+      customerName: string;
+      phone: string;
+      address: string;
+      items: Array<{ productId: bigint; quantity: bigint; price: bigint }>;
+      total: bigint;
+    }) => {
+      if (!actor) throw new Error("Not connected to server");
+      const result = await (actor as any).submitOrder(
+        customerName,
+        phone,
+        address,
+        items,
+        total,
+      );
+      if ("err" in result) throw new Error(result.err);
+      return result.ok as bigint;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orders"] }),
   });
 }

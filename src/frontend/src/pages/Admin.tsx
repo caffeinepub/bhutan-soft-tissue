@@ -211,6 +211,12 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ReactNode }[] = [
   { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" /> },
 ];
 
+// Parse carton/packet info from order address field: "Some address [Napkin: 3c+5p, Roll: 2c+0p]"
+function parseOrderDetails(address: string): string {
+  const match = address.match(/\[([^\]]+)\]$/);
+  return match ? match[1] : "";
+}
+
 // ── Main Component ──────────────────────────────────────────────────────────
 export default function Admin() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(
@@ -307,12 +313,27 @@ export default function Admin() {
   }, [isAdminAuthenticated]);
 
   // Auto re-login to restore backend admin role on every mount
-  const { actor } = useActor();
+  const { actor, isFetching: actorLoading } = useActor();
   useEffect(() => {
     if (!isAdminAuthenticated || !actor) return;
     const hash = getStoredHash();
     if (!hash) return;
-    (actor as any).adminPasswordLogin(hash).catch(() => {});
+    (actor as any)
+      .adminPasswordLogin(hash)
+      .then((ok: boolean) => {
+        if (!ok) {
+          // Backend lost the password (fresh deploy) — re-register
+          (actor as any)
+            .isAdminPasswordSet()
+            .then((isSet: boolean) => {
+              if (!isSet) {
+                (actor as any).setupAdminPassword(hash).catch(() => {});
+              }
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actor, isAdminAuthenticated]);
 
@@ -417,12 +438,22 @@ export default function Admin() {
       }
       if (localMatch || backendMatch) {
         resetAttempts();
-        // Always persist hash to localStorage so future admin operations work
         localStorage.setItem(STORAGE_HASH_KEY, hash);
-        if (localMatch) {
-          // Also notify backend so principal is updated
+        // Sync backend: if localMatch but backend has no password (fresh canister), re-register
+        let backendSynced = backendMatch;
+        if (!backendSynced) {
           try {
-            await adminPasswordLoginMutation.mutateAsync(hash);
+            backendSynced = (await adminPasswordLoginMutation.mutateAsync(
+              hash,
+            )) as unknown as boolean;
+          } catch {
+            backendSynced = false;
+          }
+        }
+        if (!backendSynced) {
+          // Fresh canister — no password set. Re-register the stored hash.
+          try {
+            await setupAdminPasswordMutation.mutateAsync(hash);
           } catch {}
         }
         sessionStorage.setItem(SESSION_KEY, "true");
@@ -534,6 +565,12 @@ export default function Admin() {
     setProductModalOpen(true);
   };
   const handleSave = async () => {
+    if (!actor) {
+      toast.error(
+        "Not connected to server. Please wait a moment and try again.",
+      );
+      return;
+    }
     try {
       if (editingProduct) {
         await updateProductMutation.mutateAsync({
@@ -1355,8 +1392,15 @@ export default function Admin() {
                                       </p>
                                     </div>
                                   </TableCell>
-                                  <TableCell className="text-sm text-slate-600 max-w-32 truncate">
-                                    {productNames || "—"}
+                                  <TableCell className="max-w-[120px]">
+                                    <div className="text-sm font-medium truncate">
+                                      {productNames || "—"}
+                                    </div>
+                                    {parseOrderDetails(o.address) && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {parseOrderDetails(o.address)}
+                                      </div>
+                                    )}
                                   </TableCell>
                                   <TableCell className="text-sm">
                                     {totalQty}
@@ -2250,11 +2294,19 @@ export default function Admin() {
                 data-ocid="admin.product.save_button"
                 onClick={handleSave}
                 disabled={
-                  addProduct.isPending || updateProductMutation.isPending
+                  addProduct.isPending ||
+                  updateProductMutation.isPending ||
+                  actorLoading ||
+                  !actor
                 }
                 className="flex-1 bg-brand-forest hover:bg-brand-forest-light text-white rounded-full"
               >
-                {addProduct.isPending || updateProductMutation.isPending ? (
+                {actorLoading || !actor ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    Connecting...
+                  </>
+                ) : addProduct.isPending || updateProductMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : editingProduct ? (
                   "Update"
